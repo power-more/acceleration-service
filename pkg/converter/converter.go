@@ -26,7 +26,6 @@ import (
 
 	"github.com/goharbor/acceleration-service/pkg/config"
 	"github.com/goharbor/acceleration-service/pkg/content"
-	"github.com/goharbor/acceleration-service/pkg/converter/annotation"
 	"github.com/goharbor/acceleration-service/pkg/driver"
 	"github.com/goharbor/acceleration-service/pkg/errdefs"
 	"github.com/goharbor/acceleration-service/pkg/metrics"
@@ -59,7 +58,7 @@ type LocalConverter struct {
 func NewLocalConverter(cfg *config.Config) (*LocalConverter, error) {
 	client, err := containerd.New(
 		cfg.Provider.Containerd.Address,
-		containerd.WithDefaultNamespace("harbor-acceleration-service"),
+		containerd.WithDefaultNamespace("k8s.io"),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "create containerd client")
@@ -117,6 +116,7 @@ func (cvt *LocalConverter) Convert(ctx context.Context, source string) error {
 
 	logger.Infof("pulling image %s", source)
 	start := time.Now()
+	e2e := time.Now()
 	if err := content.Pull(ctx, source); err != nil {
 		return errors.Wrap(err, "pull image")
 	}
@@ -124,31 +124,31 @@ func (cvt *LocalConverter) Convert(ctx context.Context, source string) error {
 
 	logger.Infof("converting image %s", source)
 	start = time.Now()
-	desc, err := cvt.driver.Convert(ctx, content)
+	_, err = cvt.driver.Convert(ctx, content)
 	if err != nil {
 		return errors.Wrap(err, "convert image")
 	}
 
-	if cvt.cfg.Converter.HarborAnnotation {
-		// Append extra annotations to converted image for harbor usage.
-		// FIXME: implement a containerd#converter.ConvertFunc to avoid creating the new manifest/index.
-		desc, err = annotation.Append(ctx, content, desc, annotation.Appended{
-			DriverName:    cvt.driver.Name(),
-			DriverVersion: cvt.driver.Version(),
-			SourceDigest:  content.Image().Target().Digest.String(),
-		})
-		if err != nil {
-			return errors.Wrap(err, "append annotations")
-		}
-	}
-	logger.Infof("converted image %s, elapse %s", target, time.Since(start))
+	// if cvt.cfg.Converter.HarborAnnotation {
+	// 	// Append extra annotations to converted image for harbor usage.
+	// 	// FIXME: implement a containerd#converter.ConvertFunc to avoid creating the new manifest/index.
+	// 	desc, err = annotation.Append(ctx, content, desc, annotation.Appended{
+	// 		DriverName:    cvt.driver.Name(),
+	// 		DriverVersion: cvt.driver.Version(),
+	// 		SourceDigest:  content.Image().Target().Digest.String(),
+	// 	})
+	// 	if err != nil {
+	// 		return errors.Wrap(err, "append annotations")
+	// 	}
+	// }
+	logger.Infof("converted image %s, elapse %s, e2e time %s", target, time.Since(start), time.Since(e2e))
 
-	start = time.Now()
-	logger.Infof("pushing image %s", target)
-	if err := content.Push(ctx, *desc, target); err != nil {
-		return errors.Wrap(err, "push image")
-	}
-	logger.Infof("pushed image %s, elapse %s", target, time.Since(start))
+	// start = time.Now()
+	// logger.Infof("pushing image %s", target)
+	// if err := content.Push(ctx, *desc, target); err != nil {
+	// 	return errors.Wrap(err, "push image")
+	// }
+	// logger.Infof("pushed image %s, elapse %s", target, time.Since(start))
 
 	return nil
 }
